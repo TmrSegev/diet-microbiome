@@ -36,12 +36,14 @@ create_phenotypes_mb.ipynb
 
 predict_phenotypes_model.py
 
-predict_phenotypes.ipynb
+predict_phenotypes_analysis.ipynb
 
-SHAP_mb_phenotypes.py
+phenotypes_mb_shap.py
 
-phenotypes_SHAP_analysis.ipynb
+phenotypes_mb_shap_analysis.ipynb
 
 diet_intervention_queue.py
 
-diet_interventio_v2.ipynb
+diet_intervention_analysis.ipynb
+
+
