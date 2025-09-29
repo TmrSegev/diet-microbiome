@@ -1,0 +1,37 @@
+,Condition,Feature
+0,Anemia,bt__mcv
+1,Fatty liver disease (MAFLD / MASLD),bt__alt_gpt
+2,,bt__ast_got
+3,,liver_sound_speed_mps
+4,Hyperlipidemia,bt__hdl_cholesterol
+5,,bt__ldl_cholesterol
+6,,bt__non_hdl_cholesterol
+7,,bt__total_cholesterol
+8,,bt__triglycerides
+9,,triglyceride_to_hdl_ratio
+10,Hypertension,mean_arterial_pressure
+11,,pulse_pressure
+12,,sitting_diastolic_bp_mean
+13,,sitting_systolic_bp_mean
+14,Impaired glucose metabolism (Prediabetes / Diabetes),bt__glucose
+15,,bt__hba1c
+16,Impaired kidney function (CKD),bt__egfr
+17,,bt__urea
+18,Increased inflammation,bt__wbc
+19,Obstructive sleep apnea,AHI
+20,,ODI
+21,,RDI
+22,Poor sleep quality,%DeepSleep
+23,,NumberOfWakes
+24,,SleepLatency
+25,,TotalSleepTime
+26,,TotalWakeTime
+27,Sarcopenia,ALM
+28,,ALMI
+29,,ALM_BMI
+30,,mean_hand_grip
+31,Visceral adiposity / abdominal obesity,android/gynoid ratio
+32,,fat_mass_index
+33,,vat_fat_ratio
+34,,waist_height_ratio
+35,,waist_hips_ratio
