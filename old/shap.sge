@@ -1,0 +1,13 @@
+#!/bin/bash
+#$ -N shap_regression	            # Job name
+#$ -cwd                     # Run the job from the current directory
+#$ -l mem_free=16G            # Request 16GB memory
+#$ -pe threads 8           # Request 8 CPU cores
+#$ -o log_shap_regression.out               # Output file
+#$ -e log_shap_regression.err               # Error file
+
+exec </dev/null  # Prevents tty warning
+
+/usr/wisdom/python3/bin/python SHAP.py  # Run your model
+
+
