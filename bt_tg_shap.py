@@ -12,6 +12,13 @@ SPECIES = "segal_species"
 def sanitize_filename(name):
     return re.sub(r'[^\w\-_. ]', '_', name)
 
+# === Friendly display names for thesis plots (titles only) ===
+TARGET_DISPLAY_NAMES = {
+    "bt__triglycerides": "triglycerides (mg/dL)",
+    "total_scan_vat_mass": "VAT mass (g)",
+    # add more mappings here if you want
+}
+
 # === Load Data ===
 df = pd.read_pickle('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/phenotypes_mb.pkl')
 
@@ -21,7 +28,7 @@ with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/targe
 # === Setup ===
 base_features = ['age', 'sex']
 flat_targets = sum(target_phenotypes, [])
-predict_subset = ['liver_sound_speed_mps', 'total_scan_vat_mass', 'bt__triglycerides']
+predict_subset = ['total_scan_vat_mass', 'bt__triglycerides']
 exclude_cols = set(flat_targets + base_features + ['RegistrationCode'])
 microbial_features = [col for col in df.columns if col not in exclude_cols]
 
@@ -33,8 +40,10 @@ shap_matrix = []
 models_dict = {}
 
 for target in predict_subset:
-    print(f"\n[SHAP] Processing target: {target}")
-    safe_target = sanitize_filename(target)
+    display_target = TARGET_DISPLAY_NAMES.get(target, target)  # ✅ title name
+    print(f"\n[SHAP] Processing target: {target}  (plot title: {display_target})")
+
+    safe_target = sanitize_filename(target)  # ✅ keep filenames stable
 
     df_target = df[df[target].notna()].copy()
     y = df_target[target]
@@ -67,8 +76,8 @@ for target in predict_subset:
         )
 
     model.fit(X, y)
-    models_dict[target] = model 
-    models_dict[safe_target] = model 
+    models_dict[target] = model
+    models_dict[safe_target] = model
 
     explainer = shap.Explainer(model, X)
     shap_values = explainer(X)
@@ -85,12 +94,11 @@ for target in predict_subset:
     )
 
     # Font adjustments
-    plt.title(target, fontsize=18)
-    plt.xlabel("SHAP Value", fontsize=16)
-    # plt.ylabel("Features", fontsize=16)
+    # plt.title(display_target, fontsize=18, fontweight="bold", pad=12)  # ✅ nicer title
+    plt.xlabel(f"SHAP value for {display_target}", fontsize=16, labelpad=10)
 
     # Tick label size
-    plt.xticks(fontsize=14)
+    plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
 
     cbar_ax = plt.gcf().axes[-1]
@@ -103,7 +111,6 @@ for target in predict_subset:
     # Set tick font size ("Low", "High")
     cbar_ax.tick_params(labelsize=14)
 
-    plt.title(target, fontsize=16)
     plt.gcf().axes[-1].set_aspect('auto')
     plt.gcf().axes[-1].set_box_aspect(100)
     plt.tight_layout()
@@ -113,7 +120,6 @@ for target in predict_subset:
     plt.savefig(f"{plot_path_base}_new.pdf", dpi=300, facecolor="white", bbox_inches='tight')
 
     plt.close()
-    # plt.show()
 
     # Save this row: a list of SHAP vectors (one per person)
     row = [list(shap_array[i]) for i in range(shap_array.shape[0])]

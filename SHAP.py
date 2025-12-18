@@ -12,8 +12,14 @@ MODEL = 'LGBM' # 'LGBM' or 'ridge' or 'logistic'
 TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
 PROBLEM = 'regression' # 'regression' or 'classification' or 'given_presence' or 'reverse'
 SPECIES = 'segal_species' # 'segal_species' or 'mpa_species'
-aggregate_features = True
+aggregate_features = False
 aggregattion = '_aggregated_features_rms' if aggregate_features else ''
+# New default: use covariates (BMI + comorbidities). Set age_sex_only=True to drop them.
+age_sex_only = False
+# Helper flag
+use_covariates = not age_sex_only
+# For outputs: no suffix when using covariates (default); tag age/sex-only runs
+suffix_covariates = '' if use_covariates else '_age_sex_only'
 
 if aggregate_features:
     with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/food_categories.pkl', 'rb') as file:
@@ -349,19 +355,20 @@ def stub_job():
     print(MODEL)
     print(TARGETS)
     print(PROBLEM)
+    print(f"use_covariates: {use_covariates}")
     params_results = {}
     print("Loading models")
     # models_dict = pickle.load(open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/{PROBLEM}/models_' + MODEL + '_' + TARGETS + '.pkl', 'rb'))
-    models_list = pickle.load(open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/{PROBLEM}/{SPECIES}/models_' + MODEL + '_' + TARGETS + '_longitudinal.pkl', 'rb'))
+    models_list = pickle.load(open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/{PROBLEM}/{SPECIES}/models_' + MODEL + '_' + TARGETS + '_longitudinal' + suffix_covariates + '.pkl', 'rb'))
     
     reverse = 'reverse/' if PROBLEM == 'reverse' else ''
     species = '' if SPECIES == 'segal_species' else '_mpa'
     pathways = '' if TARGETS != 'pathways' else '_pathways'
 
     # diet_mb = pd.read_pickle("/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/diet_mb.pkl")
-    train_baseline = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/{reverse}diet_mb{pathways}_baseline_train.pkl")
-    test_02_visit = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_02_visit.pkl")
-    test_baseline = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/{reverse}diet_mb{pathways}_baseline_test.pkl")
+    train_baseline = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/{reverse}diet_mb{pathways}_baseline_train{suffix_covariates}.pkl")
+    test_02_visit = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_02_visit{suffix_covariates}_test.pkl")
+    test_baseline = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/{reverse}diet_mb{pathways}_baseline_test{suffix_covariates}.pkl")
     print(train_baseline.shape)
     print(test_baseline.shape)
     print(test_02_visit.shape)

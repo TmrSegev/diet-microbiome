@@ -19,16 +19,22 @@ from tqdm import tqdm
 
 ### PARAMETERS ###
 MODEL = 'LGBM' # 'LGBM' or 'ridge' or 'logistic'
-TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
+TARGETS = 'div' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
 SPLIT = 'longitudinal' # 'kfold' or 'longitudinal'
 PROBLEM = 'regression' # 'regression' or 'classification' or 'reverse' or 'given_presence'
-SPECIES = 'mpa_species' # 'segal_species' or 'mpa_species'
+SPECIES = 'segal_species' # 'segal_species' or 'mpa_species'
 base_training = False
 CLR_flag = False
 robust_training = False
 ROBUST_REPEATS = 5  # number of subsamples per grid size
 no_var_features = False
 foods_only = False
+nutrients_only = False
+pnp3_10k_features = False
+# New default: use covariates (BMI + comorbidities). Set age_sex_only=True to drop them.
+age_sex_only = False
+# Helper flag
+use_covariates = not age_sex_only
 ##################
 
 suffix = '_longitudinal' if SPLIT == 'longitudinal' else '' 
@@ -37,6 +43,11 @@ target_part = 'diet' if PROBLEM == 'reverse' else f'{TARGETS}'
 base = 'base_' if base_training else ''
 suffix_var = '_no_var_features' if no_var_features else ''
 suffix_foods = '_foods_only' if foods_only else ''
+suffix_nutrients = '_nutrients_only' if nutrients_only else ''
+suffix_pnp3 = '_10k_pnp3' if pnp3_10k_features else ''
+# For outputs: no suffix when using covariates (default); tag age/sex-only runs
+suffix_covariates = '' if use_covariates else '_age_sex_only'
+suffix_features = suffix_foods + suffix_nutrients + suffix_pnp3 + suffix_covariates
 pathways = '' if TARGETS != 'pathways' else '_pathways'
 CLR_suf = '_CLR' if CLR_flag else ''
 # SAVE_MODELS_IN_ROBUSTNESS = False if robust_training else True  # do not pickle models in robustness runs
@@ -57,7 +68,7 @@ def stub_subjob(df, features, target, i, models_dict):
         df = df[df[target] > -4].copy()
         prevalence = df[target].shape[0]
 
-    kf = KFold(n_splits=5, shuffle=False) # If shuffle turned on add a random_state=1 kwarg.
+    kf = KFold(n_splits=5, shuffle=False) # If shuffle is turned on, please add a random_state=1 kwarg.
 
     preds = []
     targets = []
@@ -350,7 +361,8 @@ def train_baseline_classification(df, features, target, i, models_dict):
     return accuracy, auc, all_feat_importances, all_preds, all_targets, [auc_p_value]
 
 
-def scale_data(train, test, features, target_features, test_02_visit=None, test_04_visit=None):
+def scale_data(train, test, features, target_features, test_02_visit=None, test_04_visit=None, bmi_feature=None):
+    div_features = ['Richness', 'Shannon_diversity']
     # Create copies to ensure the original dataframes passed to the function are not modified.
     train = train.copy()
     test = test.copy()
@@ -364,13 +376,25 @@ def scale_data(train, test, features, target_features, test_02_visit=None, test_
     # Transform the test data using the same fitted scaler.
     test.loc[:, age_feature] = age_scaler.transform(test[age_feature])
 
+    # --- 1b. Dedicated scaler for BMI (handled separately from diet features) ---
+    bmi_scaler = StandardScaler()
+    if bmi_feature and bmi_feature in train.columns:
+        train.loc[:, [bmi_feature]] = bmi_scaler.fit_transform(train[[bmi_feature]])
+        if bmi_feature in test.columns:
+            test.loc[:, [bmi_feature]] = bmi_scaler.transform(test[[bmi_feature]])
+
     # --- 2. Initialize and apply the scaler for other diet features ---
     diet_scaler = StandardScaler()
     
     # Identify binary features (columns with only 0 and 1) to exclude them from standardization.
     # Also, exclude 'age' as it has already been scaled separately.
-    binary_features = [col for col in features if train[col].nunique() == 2 and sorted(train[col].unique()) == [0, 1]]
-    features_to_standardize = [feature for feature in features if feature not in binary_features and feature != 'age']
+    binary_features = [col for col in features if col in train.columns and train[col].nunique() == 2 and sorted(train[col].unique()) == [0, 1]]
+    features_to_standardize = [
+        feature for feature in features
+        if feature not in binary_features
+        and feature != 'age'
+        and feature != bmi_feature
+    ]
 
     # Fit the scaler on the training feature data and transform it.
     # Then, transform the test feature data using the same fitted scaler.
@@ -387,30 +411,67 @@ def scale_data(train, test, features, target_features, test_02_visit=None, test_
         train.loc[:, target_features] = mb_scaler.fit_transform(train[target_features])
         test.loc[:, target_features] = mb_scaler.transform(test[target_features])
 
-    # --- 4. Handle optional dataframes and return values ---
+    # --- 4. Initialize and apply the scaler for diversity features ---
+    div_scaler = StandardScaler()
+    div_features_present = [feat for feat in div_features if feat in train.columns]
+    
+    # Fit the scaler on the training diversity data and transform it.
+    # Then, transform the test diversity data using the same fitted scaler.
+    if div_features_present:
+        train.loc[:, div_features_present] = div_scaler.fit_transform(train[div_features_present])
+        test.loc[:, div_features_present] = div_scaler.transform(test[div_features_present])
+
+    # --- 5. Handle optional dataframes and return values ---
     if (test_02_visit is None) or (test_04_visit is None):
-        return train, test, diet_scaler, mb_scaler, age_scaler
+        return train, test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler
     else:
         test_02_visit = test_02_visit.copy()
         test_04_visit = test_04_visit.copy()
 
-        # Apply the fitted age_scaler to the optional dataframes.
-        test_02_visit.loc[:, age_feature] = age_scaler.transform(test_02_visit[age_feature])
-        test_04_visit.loc[:, age_feature] = age_scaler.transform(test_04_visit[age_feature])
+        # Apply the fitted age_scaler to the optional dataframes (if age column exists).
+        if age_feature[0] in test_02_visit.columns:
+            test_02_visit.loc[:, age_feature] = age_scaler.transform(test_02_visit[age_feature])
+        if age_feature[0] in test_04_visit.columns:
+            test_04_visit.loc[:, age_feature] = age_scaler.transform(test_04_visit[age_feature])
+
+        # Apply the fitted bmi_scaler to the optional dataframes (if BMI column exists).
+        if bmi_feature and hasattr(bmi_scaler, 'mean_'):
+            if bmi_feature in test_02_visit.columns:
+                test_02_visit.loc[:, [bmi_feature]] = bmi_scaler.transform(test_02_visit[[bmi_feature]])
+            if bmi_feature in test_04_visit.columns:
+                test_04_visit.loc[:, [bmi_feature]] = bmi_scaler.transform(test_04_visit[[bmi_feature]])
 
         # Transform the features in the optional dataframes using the fitted diet_scaler.
+        # Filter to only features that exist in the visit dataframes (they may have different columns)
         if features_to_standardize:
-            test_02_visit.loc[:, features_to_standardize] = diet_scaler.transform(test_02_visit[features_to_standardize])
-            test_04_visit.loc[:, features_to_standardize] = diet_scaler.transform(test_04_visit[features_to_standardize])
+            features_in_02 = [f for f in features_to_standardize if f in test_02_visit.columns]
+            features_in_04 = [f for f in features_to_standardize if f in test_04_visit.columns]
+            if features_in_02:
+                test_02_visit.loc[:, features_in_02] = diet_scaler.transform(test_02_visit[features_in_02])
+            if features_in_04:
+                test_04_visit.loc[:, features_in_04] = diet_scaler.transform(test_04_visit[features_in_04])
         
         # Transform the targets in the optional dataframes using the fitted mb_scaler.
+        # Filter to only targets that exist in the visit dataframes
         if target_features:
-            test_02_visit.loc[:, target_features] = mb_scaler.transform(test_02_visit[target_features])
-            test_04_visit.loc[:, target_features] = mb_scaler.transform(test_04_visit[target_features])
+            targets_in_02 = [t for t in target_features if t in test_02_visit.columns]
+            targets_in_04 = [t for t in target_features if t in test_04_visit.columns]
+            if targets_in_02:
+                test_02_visit.loc[:, targets_in_02] = mb_scaler.transform(test_02_visit[targets_in_02])
+            if targets_in_04:
+                test_04_visit.loc[:, targets_in_04] = mb_scaler.transform(test_04_visit[targets_in_04])
+        
+        # Transform the diversity features in the optional dataframes using the fitted div_scaler.
+        # Filter to only diversity features that exist in the visit dataframes
+        if div_features_present:
+            div_in_02 = [d for d in div_features_present if d in test_02_visit.columns]
+            div_in_04 = [d for d in div_features_present if d in test_04_visit.columns]
+            if div_in_02:
+                test_02_visit.loc[:, div_in_02] = div_scaler.transform(test_02_visit[div_in_02])
+            if div_in_04:
+                test_04_visit.loc[:, div_in_04] = div_scaler.transform(test_04_visit[div_in_04])
 
-        return train, test, diet_scaler, mb_scaler, age_scaler, test_02_visit, test_04_visit
-
-
+        return train, test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler, test_02_visit, test_04_visit
 
 
 
@@ -418,6 +479,17 @@ def prepare_data():
     with open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/my_lists{pathways}.pkl', 'rb') as file:
         loaded_lists = pickle.load(file)
     base_features, features, target_input = loaded_lists
+
+    # Load covariates (bmi + comorbidities; lifestyle intentionally excluded)
+    if use_covariates:
+        with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/covariates.pkl', 'rb') as file:
+            bmi_col, comorbidity_cols, _lifestyle_cols = pickle.load(file)
+        # Sanitize covariate names the same way columns are sanitized later
+        covariate_features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in ([bmi_col] + list(comorbidity_cols))]
+        bmi_feature = covariate_features[0] if covariate_features else None
+    else:
+        covariate_features = []
+        bmi_feature = None
 
     if no_var_features:
         features = [x for x in features if x not in [
@@ -451,15 +523,58 @@ def prepare_data():
             food_shortnames = pickle.load(file)
         features = [x for x in features if x in food_shortnames]
         print(len(features))
-        features = features + ['age', 'sex']
+        # Add 'age' and 'sex' if not already present
+        for feat in ['age', 'sex']:
+            if feat not in features:
+                features.append(feat)
         print(len(features))
 
+    if nutrients_only:
+        with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/nutr_list_aus.pkl', 'rb') as file:
+            nutr_list = pickle.load(file)
+        features = nutr_list
+        # Add 'age' and 'sex' if not already present
+        for feat in ['age', 'sex']:
+            if feat not in features:
+                features.append(feat)
+        print("Number of features:", len(features))
 
-        
-    # Train test split
-    diet_mb = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}{CLR_suf}.pkl")
-    diet_mb_02_visit = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_02_visit{CLR_suf}.pkl")
-    diet_mb_04_visit = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_04_visit{CLR_suf}.pkl")
+    if pnp3_10k_features:
+        with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/my_lists_pnp3.pkl', 'rb') as file:
+            pnp3_10k_shared_features, targets_10k = pickle.load(file)
+        features = [x for x in features if x in pnp3_10k_shared_features]
+        print(len(features))
+        # Add 'age' and 'sex' if not already present
+        for feat in ['age', 'sex']:
+            if feat not in features:
+                features.append(feat)
+        print(len(features))
+        target_input = [x for x in target_input if x in targets_10k]
+        print(f"Filtered target_input to {len(target_input)} targets")
+
+    # Always include covariates (bmi + comorbidities) for both base and full training
+    def _extend_unique(lst, extras):
+        for item in extras:
+            if item not in lst:
+                lst.append(item)
+    if use_covariates:
+        _extend_unique(features, covariate_features)
+        _extend_unique(base_features, covariate_features)
+    else:
+        # Ensure covariate columns are not in feature lists when covariates are disabled
+        features = [f for f in features if f not in covariate_features]
+        base_features = [f for f in base_features if f not in covariate_features]
+
+    # Train test split (input pickles already include covariates when present)
+    if nutrients_only:
+        diet_mb = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb_new_nutrients{pathways}{CLR_suf}.pkl")
+        diet_mb_02_visit = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_02_visit{CLR_suf}.pkl")
+        diet_mb_04_visit = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_04_visit{CLR_suf}.pkl")
+    else:
+        base_path = f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/"
+        diet_mb = pd.read_pickle(base_path + f"diet_mb{pathways}{CLR_suf}.pkl")
+        diet_mb_02_visit = pd.read_pickle(base_path + f"diet_mb{pathways}_02_visit{CLR_suf}.pkl")
+        diet_mb_04_visit = pd.read_pickle(base_path + f"diet_mb{pathways}_04_visit{CLR_suf}.pkl")
     print("diet_mb shape:", diet_mb.shape)
     print("diet_mb_02_visit shape:", diet_mb_02_visit.shape)
     print("diet_mb_04_visit shape:", diet_mb_04_visit.shape)
@@ -488,7 +603,7 @@ def prepare_data():
     diet_mb_test_02_visit = diet_mb_test_02_visit.drop(columns=zero_var_targets, errors='ignore')
     diet_mb_test_04_visit = diet_mb_test_04_visit.drop(columns=zero_var_targets, errors='ignore')
     # Save updated target_input to file
-    if not (no_var_features or foods_only):
+    if not (no_var_features or foods_only or nutrients_only or pnp3_10k_features):
         with open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/my_lists{pathways}.pkl', 'wb') as file:
             pickle.dump((base_features, features, target_input), file)
 
@@ -498,27 +613,94 @@ def prepare_data():
     diet_mb_test_02_visit.columns = diet_mb_test_02_visit.columns.str.replace(r'[^a-zA-Z0-9_]', '_', regex=True)
     diet_mb_test_04_visit.columns = diet_mb_test_04_visit.columns.str.replace(r'[^a-zA-Z0-9_]', '_', regex=True)
 
+    # Sanitize feature/target names after column renaming so they match the sanitized columns
     features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in features]
+    base_features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in base_features]
+    target_input = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in target_input]
+
+    # Drop any features not present in the loaded dataframe
+    features = [f for f in features if f in diet_mb.columns]
+    base_features = [f for f in base_features if f in diet_mb.columns]
+
     original_features = features[:]
     features = base_features if base_training else features
-    target_input = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in target_input]
+    
+    # # Filter dataframes to only include selected features and targets when pnp3_10k_features is True
+    # if pnp3_10k_features:
+    #     # Get all columns we need: features + target_input
+    #     columns_to_keep = list(set(features + target_input))
+    #     # Only keep columns that actually exist in the dataframes
+    #     columns_to_keep = [col for col in columns_to_keep if col in diet_mb_train.columns]
+    #     print(f"Filtering dataframes to {len(columns_to_keep)} columns (features + targets)")
+    #     diet_mb_train = diet_mb_train[columns_to_keep]
+    #     diet_mb_test = diet_mb_test[columns_to_keep]
+    #     diet_mb_test_02_visit = diet_mb_test_02_visit[columns_to_keep]
+    #     diet_mb_test_04_visit = diet_mb_test_04_visit[columns_to_keep]
+    #     print(f"diet_mb_train shape after filtering: {diet_mb_train.shape}")
+    #     print(f"diet_mb_test shape after filtering: {diet_mb_test.shape}")
+    #     # Also filter features and target_input to only include columns that exist
+    #     features = [f for f in features if f in columns_to_keep]
+    #     target_input = [t for t in target_input if t in columns_to_keep]
+    #     print(f"Final features count: {len(features)}, Final targets count: {len(target_input)}")
     
     # Scaling the data
     if PROBLEM != 'reverse':
-        diet_mb_train, diet_mb_test, diet_scaler, mb_scaler, age_scaler, diet_mb_test_02_visit_copy, diet_mb_test_04_visit_copy = scale_data(diet_mb_train, diet_mb_test, features, target_input, diet_mb_test_02_visit, diet_mb_test_04_visit)
+        # When nutrients_only, skip processing visit dataframes (they have different columns)
+        if nutrients_only:
+            diet_mb_train, diet_mb_test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler = scale_data(
+                diet_mb_train, diet_mb_test, features, target_input, bmi_feature=bmi_feature
+            )
+        else:
+            (
+                diet_mb_train,
+                diet_mb_test,
+                diet_scaler,
+                mb_scaler,
+                age_scaler,
+                div_scaler,
+                bmi_scaler,
+                diet_mb_test_02_visit_copy,
+                diet_mb_test_04_visit_copy,
+            ) = scale_data(
+                diet_mb_train,
+                diet_mb_test,
+                features,
+                target_input,
+                diet_mb_test_02_visit,
+                diet_mb_test_04_visit,
+                bmi_feature=bmi_feature,
+            )
         # print(diet_mb_train.describe())
         # print(diet_mb_test.describe())
         # print(diet_mb_test_02_visit.describe())
-        diet_mb_train.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{CLR_suf}{suffix_foods}_train.pkl")
-        diet_mb_test.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{CLR_suf}{suffix_foods}_test.pkl")
-        diet_mb_test_02_visit_copy.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_02_visit{CLR_suf}{suffix_foods}_test.pkl")
-        diet_mb_test_04_visit_copy.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_04_visit{CLR_suf}{suffix_foods}_test.pkl")
-        with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_scaler{pathways}{CLR_suf}{suffix_foods}.pkl", 'wb') as file:
-            pickle.dump(diet_scaler, file)
-        with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/mb_scaler{pathways}{CLR_suf}{suffix_foods}.pkl", 'wb') as file:
-            pickle.dump(mb_scaler, file)
-        with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/age_scaler{pathways}{CLR_suf}{suffix_foods}.pkl", 'wb') as file:
+        diet_mb_train.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{CLR_suf}{suffix_features}_train.pkl")
+        diet_mb_test.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{CLR_suf}{suffix_features}_test.pkl")
+        if not nutrients_only:
+            diet_mb_test_02_visit_copy.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_02_visit{CLR_suf}{suffix_features}_test.pkl")
+            diet_mb_test_04_visit_copy.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_04_visit{CLR_suf}{suffix_features}_test.pkl")
+        # Only save diet_scaler if it was fitted (has diet features to standardize)
+        # This prevents overwriting a fitted scaler when base_training=True
+        if hasattr(diet_scaler, 'mean_'):
+            with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
+                pickle.dump(diet_scaler, file)
+        else:
+            print("Warning: diet_scaler not fitted (no diet features to standardize). Skipping save to avoid overwriting.")
+        # Only save mb_scaler if it was fitted
+        if hasattr(mb_scaler, 'mean_'):
+            with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/mb_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
+                pickle.dump(mb_scaler, file)
+        with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/age_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
             pickle.dump(age_scaler, file)
+        # Save bmi_scaler if it was fitted
+        if bmi_feature and hasattr(bmi_scaler, 'mean_'):
+            with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/bmi_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
+                pickle.dump(bmi_scaler, file)
+        # Save div_scaler if div features are present and scaler was fitted
+        div_features = ['Richness', 'Shannon_diversity']
+        div_features_present = [feat for feat in div_features if feat in diet_mb_train.columns]
+        if div_features_present and hasattr(div_scaler, 'mean_'):
+            with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/div_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
+                pickle.dump(div_scaler, file)
         print("SAVED")
         return diet_mb_train, features, target_input
 
@@ -527,7 +709,10 @@ def prepare_data():
         diet_targets = [feat for feat in original_features if feat not in ['age', 'gender']]
 
         # Standardize the data
-        diet_mb_train, diet_mb_test, scaler = scale_data(diet_mb_train, diet_mb_test, mb_features)
+        diet_mb_train, diet_mb_test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler = scale_data(
+            diet_mb_train, diet_mb_test, mb_features, None, bmi_feature=bmi_feature
+        )
+        scaler = diet_scaler  # Keep for backward compatibility
         # diet_mb_train.to_pickle("/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/reverse/diet_mb_baseline_train_reverse.pkl")
         # diet_mb_test.to_pickle("/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/reverse/diet_mb_baseline_test_reverse.pkl")
         # with open("/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/scaler.pkl", 'wb') as file:
@@ -568,9 +753,9 @@ def training_loop(diet_mb, features, target_input):
 
             pbar.update(1)
 
-    pickle.dump(models_dict, open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/{PROBLEM}/{SPECIES}/models_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_foods}.pkl', "wb"))
+    pickle.dump(models_dict, open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/{PROBLEM}/{SPECIES}/models_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_features}.pkl', "wb"))
     output = pd.DataFrame(params_results).transpose().apply(lambda x: x.explode(), axis=1)
-    output.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_foods}.pkl")
+    output.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_features}.pkl")
 
 
 def read_results(df):
@@ -592,7 +777,7 @@ def _select_loop_targets_for_robustness(target_input):
         prior_output_path = (
             f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/"
             f"data/{PROBLEM}/{SPECIES}/"
-            f"output_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_foods}.pkl"
+            f"output_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_features}.pkl"
         )
         lgbm_diet_scores, lgbm_diet_pvalues, lgbm_diet_coefs, lgbm_diet_preds, lgbm_diet_targets = read_results(
             pd.read_pickle(prior_output_path)
@@ -636,7 +821,7 @@ def robustness_training(diet_mb, features, target_input):
                     f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/"
                     f"models/{PROBLEM}/{SPECIES}/robustness/"
                     f"models_{base}{MODEL}_{target_part}_{n_samples}_samples"
-                    f"{suffix}{suffix_var}{CLR_suf}{suffix_foods}_rep{rep}.pkl"
+                    f"{suffix}{suffix_var}{CLR_suf}{suffix_features}_rep{rep}.pkl"
                 )
                 os.makedirs(os.path.dirname(models_out_path), exist_ok=True)
                 pickle.dump(models_dict, open(models_out_path, "wb"))
@@ -646,7 +831,7 @@ def robustness_training(diet_mb, features, target_input):
                 f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/"
                 f"data/{PROBLEM}/{SPECIES}/"
                 f"output_{base}{MODEL}_{target_part}_robust_{n_samples}"
-                f"{suffix}{suffix_var}{CLR_suf}{suffix_foods}_rep{rep}.pkl"
+                f"{suffix}{suffix_var}{CLR_suf}{suffix_features}_rep{rep}.pkl"
             )
             os.makedirs(os.path.dirname(data_out_path), exist_ok=True)
             output.to_pickle(data_out_path)
@@ -662,6 +847,9 @@ if __name__ == '__main__':
     print(f"robust_training: {robust_training}")
     print(f"no_var_features: {no_var_features}")
     print(f"food features only: {foods_only}")
+    print(f"nutrients only: {nutrients_only}")
+    print(f"pnp3 10k features: {pnp3_10k_features}")
+    print(f"use_covariates: {use_covariates}")
 
     if TARGETS == 'div' and PROBLEM == 'classification':
         raise ValueError("Cannot perform classification on diversity targets. Change TARGETS to 'abundance' or PROBLEM to ''.")
@@ -673,5 +861,5 @@ if __name__ == '__main__':
     else:
         training_loop(diet_mb, features, target_input)
         
-    output = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_foods}.pkl")
+    output = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_{base}{MODEL}_{target_part}{suffix}{suffix_var}{CLR_suf}{suffix_features}.pkl")
     print(output)

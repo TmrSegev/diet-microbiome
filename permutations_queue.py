@@ -18,17 +18,22 @@ import time
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
+
 MODEL = 'LGBM' # 'LGBM' or 'ridge'
-TARGETS = 'pathways' # 'div' or 'abundance' or 'pathways'
+TARGETS = 'abundance' # 'div' or 'abundance' or 'pathways'
 SPLIT = 'kfold' # 'kfold' or 'all_baseline'
-suffix = '_all_baseline' if SPLIT == 'all_baseline' else ''
 PROBLEM = 'regression' # 'regression' or 'classification'
 SPECIES = 'segal_species' # 'segal_species' or 'mpa_species'
 PERMUTATIONS = 1000 # Number of permutations
+nutrients_only = False  # Use nutrients-only features
+pnp3_10k_features = True  # Use pnp3 10k features
 
+suffix = '_all_baseline' if SPLIT == 'all_baseline' else ''
+suffix_nutrients = '_nutrients_only' if nutrients_only else ''
+suffix_pnp3 = '_10k_pnp3' if pnp3_10k_features else ''
+suffix_features = suffix_nutrients + suffix_pnp3
 pathways = '' if TARGETS != 'pathways' else '_pathways'
 
-import pandas as pd
 
 def choose_target_bins(df_log, targets):
     df_mb = df_log[targets]
@@ -212,16 +217,53 @@ def stub_job(q):
     print(TARGETS)
     print(SPLIT)
     print(PROBLEM)
+    print(f"nutrients_only: {nutrients_only}")
+    print(f"pnp3_10k_features: {pnp3_10k_features}")
     params_methods = {}
     params_results = {}
-    diet_mb = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline_train.pkl")
+    
+    # Load data based on feature flags
+    if nutrients_only:
+        diet_mb = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{suffix_nutrients}_train.pkl")
+    elif pnp3_10k_features:
+        diet_mb = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{suffix_pnp3}_train.pkl")
+    else:
+        diet_mb = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline_train.pkl")
 
-    with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/mb_scaler{pathways}.pkl", 'rb') as f:
+    with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/mb_scaler{pathways}{suffix_features}.pkl", 'rb') as f:
         mb_scaler = pickle.load(f)
 
-    with open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/my_lists{pathways}.pkl', 'rb') as file:
-        loaded_lists = pickle.load(file)
-    base_features, features, target_input = loaded_lists
+    # Load features based on feature flags
+    if nutrients_only:
+        with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/nutr_list_aus.pkl', 'rb') as file:
+            features = pickle.load(file)
+        # Add age and sex if not already present
+        for feat in ['age', 'sex']:
+            if feat not in features:
+                features.append(feat)
+        # Load targets from my_lists
+        with open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/my_lists{pathways}.pkl', 'rb') as file:
+            loaded_lists = pickle.load(file)
+        _, _, target_input = loaded_lists
+    else:
+        with open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/my_lists{pathways}.pkl', 'rb') as file:
+            loaded_lists = pickle.load(file)
+        base_features, features, target_input = loaded_lists
+    
+    # Filter features and targets if pnp3_10k_features is True
+    if pnp3_10k_features:
+        with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/my_lists_pnp3.pkl', 'rb') as file:
+            pnp3_10k_shared_features, targets_10k = pickle.load(file)
+        features = [x for x in features if x in pnp3_10k_shared_features]
+        print(f"Filtered features to {len(features)} pnp3 10k features")
+        # Add 'age' and 'sex' if not already present
+        for feat in ['age', 'sex']:
+            if feat not in features:
+                features.append(feat)
+        print(f"Final features count: {len(features)}")
+        target_input = [x for x in target_input if x in targets_10k]
+        print(f"Filtered target_input to {len(target_input)} targets")
+    
     diet_mb.columns = diet_mb.columns.str.replace(r'[^a-zA-Z0-9_]', '_').str.replace(' ', '_')
     features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in features]
     target_input = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in target_input]
@@ -239,7 +281,7 @@ def stub_job(q):
         loop_targets = binned_targets
         if not microbe_bin_mapping:
             raise RuntimeError("microbe_bin_mapping is empty; aborting save.")
-        with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/microbe_bin_mapping_perm{pathways}.pkl", 'wb') as f:
+        with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/microbe_bin_mapping_perm{pathways}{suffix_features}.pkl", 'wb') as f:
             pickle.dump(microbe_bin_mapping, f)
             print("SAVED MAPPING")
     elif TARGETS == 'div':
@@ -301,7 +343,7 @@ def stub_job(q):
     output.dropna(axis=1, inplace=True)
     if target == "abundance":
         output.index = binned_targets
-    output.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_" + MODEL + '_' + TARGETS + suffix + '_perm.pkl')
+    output.to_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_" + MODEL + '_' + TARGETS + suffix + suffix_features + '_perm.pkl')
 
 
 def main():
@@ -317,5 +359,5 @@ if __name__ == '__main__':
         raise ValueError("Cannot perform classification on diversity targets. Change TARGETS to 'abundance' or PROBLEM to ''.")
     addloglevels.sethandlers()
     main()
-    output = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_" + MODEL + '_' + TARGETS + suffix + '_perm.pkl')
+    output = pd.read_pickle(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{PROBLEM}/{SPECIES}/output_" + MODEL + '_' + TARGETS + suffix + suffix_features + '_perm.pkl')
     print(output)
