@@ -25,11 +25,11 @@ plt.style.use(style_path + single_style)
 
 outdir = '/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/'
 MODEL = 'LGBM' # 'LGBM' or 'ridge'
-TARGETS = 'div' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
-GROUP = 'div' # 'Health', 'div', 'Top', 'probiotics', "pathogenic", "TMAO", "SCFA", "butyrate", "acetate", "propionate", 'etc', 'Top_pathways', "Health_shared_species", "Triglycerides"
+TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
+GROUP = 'Top' # 'Health', 'div', 'Top', 'probiotics', "pathogenic", "TMAO", "SCFA", "butyrate", "acetate", "propionate", 'etc', 'Top_pathways', "Health_shared_species", "Triglycerides"
 PROBLEM = 'regression' # 'regression' or 'classification' or 'given_presence' or 'reverse'
 SPECIES = "segal_species" # "mpa_species" or "segal_species"
-PLOT_TYPE = 'bar' # 'dot' or 'bar'
+PLOT_TYPE = 'dot' # 'dot' or 'bar'
 
 div_targets = ['Richness', 'Shannon_diversity']
 health_targets = ['modified_HACK_top17_score', 'GMWI2_score']
@@ -205,7 +205,7 @@ def convert_series_to_species(feature_series, mb_names):
 def stub_subjob(train, test, features, target, models_list, targets, mb_names, lgbm_diet_scores=None):
     print(target)
     model = models_list[target]
-
+    
     if MODEL == 'LGBM':
         explainer = shap.TreeExplainer(model)
     elif MODEL == 'ridge':
@@ -299,7 +299,7 @@ def stub_job():
 
     if PROBLEM == 'reverse':
         mb_features = target_input + ['Richness', 'Shannon_diversity'] + base_features
-        diet_targets = [feat for feat in features if feat not in ['age', 'gender']]
+        diet_targets = [feat for feat in features if feat not in ['age', 'sex']]
 
     print('Starting queue')
 

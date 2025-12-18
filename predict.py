@@ -17,7 +17,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 
 MODEL = 'LGBM' # 'LGBM' or 'ridge' or 'logistic'
 TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
-STAGE = 'baseline' # 'baseline' or '02_visit' or '04_visit'
+STAGE = '04_visit' # 'baseline' or '02_visit' or '04_visit'
 PROBLEM = 'regression' # 'classification' or 'regression' or 'given_presence' or 'reverse'
 SPECIES = 'segal_species' # 'mpa_species' or 'segal_species'
 robust_flag = False

@@ -3,11 +3,12 @@ The data used in this paper is part of the Human Phenotype Project (HPP) and is 
 Interested bona fide researchers should contact info@pheno.ai to obtain instructions for accessing the data
 
 ### Instructions of use
-The run of each file may take a few minutes up to an hour, depending on the number of features and samples in the dataset. The permutation analysis may take up to a few days.
+The run of each file may take a few minutes up to a few hours, depending on the number of features and samples in the dataset. The permutation analysis may take up to a few days.
 
 #### Diet-microbiome predictions pipeline
 - `diet_processing.ipynb`
 - `create_diet_mb.ipynb`
+- `add_covariates.ipynb`
 - `train_models.py`  
   - Parameters:
     - div + ridge
@@ -44,5 +45,7 @@ Python 3.7.4, numpy 1.21.0, pandas 1.3.5, scipy 1.7.0, statsmodels 0.13.2, sciki
 
 ### Demo
 Run `demo.ipynb` to train models on a mock data and generate Fig. 3a. Expected time: 30 minutes.
+
+
 
 

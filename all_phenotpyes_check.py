@@ -13,13 +13,13 @@ import re
 # Paths
 # --------------------------------------------------------------------
 data_dir = '/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/'
-phenotype_df_path = data_dir + 'phenotypes_diet_microbiome_new.pkl'
-lists_path = data_dir + 'my_lists_new.pkl'
+phenotype_df_path = data_dir + 'phenotypes_diet_microbiome_new_study_ids.pkl'
+lists_path = data_dir + 'my_lists_new_study_ids.pkl'
 
 # Outputs
-results_path = data_dir + 'phenotypes_ablation_results_df_new.pkl'
-predictions_path = data_dir + 'phenotypes_ablation_predictions_new.pkl'
-figure_path = data_dir + 'phenotypes_ablation_barplot_new.png'
+results_path = data_dir + 'phenotypes_ablation_results_df_new_study_ids.pkl'
+predictions_path = data_dir + 'phenotypes_ablation_predictions_new_study_ids.pkl'
+figure_path = data_dir + 'phenotypes_ablation_barplot_new_study_ids.png'
 
 # --------------------------------------------------------------------
 # Load data
@@ -255,7 +255,7 @@ if not results_df.empty:
     width = 0.2
 
     plt.figure(figsize=(14, 6))
-    plt.bar(x - 1.5 * width, plot_df['r_base'], width, label='Base (age/sex)')
+    plt.bar(x - 1.5 * width, plot_df['r_base'], width, label='Base (age/sex/BMI)')
     plt.bar(x - 0.5 * width, plot_df['r_diet'], width, label='Base + diet')
     plt.bar(x + 0.5 * width, plot_df['r_micro'], width, label='Base + microbiome')
     plt.bar(x + 1.5 * width, plot_df['r_full'], width, label='Base + diet + microbiome')
