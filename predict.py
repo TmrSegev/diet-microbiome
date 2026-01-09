@@ -16,15 +16,16 @@ import re
 from sklearn.metrics import accuracy_score, roc_auc_score
 
 MODEL = 'LGBM' # 'LGBM' or 'ridge' or 'logistic'
-TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
+TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways' or 'enterosignatures'
 STAGE = '04_visit' # 'baseline' or '02_visit' or '04_visit'
 PROBLEM = 'regression' # 'classification' or 'regression' or 'given_presence' or 'reverse'
-SPECIES = 'segal_species' # 'mpa_species' or 'segal_species'
+SPECIES = 'mpa_species' # 'mpa_species' or 'segal_species'
 robust_flag = False
 
 pathways = '' if TARGETS != 'pathways' else '_pathways'
 # stage_suf = '' if STAGE == 'baseline' else '_' + STAGE
 stage_suf = '_' + STAGE
+div_features = ['Richness', 'Shannon_diversity', 'Faith_index']
 
 
 def predict(df, features, target, i, models_list):
@@ -120,13 +121,15 @@ def stub_job():
 
     if PROBLEM == 'reverse':
         diet_features = features  # Store original features (diet variables)
-        features = target_input + ['Richness', 'Shannon_diversity'] + base_features  # Microbial features become predictors
+        features = target_input + div_features + base_features  # Microbial features become predictors
         target_input = [feat for feat in diet_features if feat not in ['age', 'gender']]  # Diet variables become targets
 
     if TARGETS == 'div':
-        loop_targets = ['Richness', 'Shannon_diversity']
+        loop_targets = div_features
     elif TARGETS == 'abundance' or TARGETS == 'pathways' or PROBLEM == 'reverse':
         loop_targets = target_input
+    elif TARGETS == 'enterosignatures':
+        loop_targets = [f'Enterosignature_{i}' for i in range(1, 6)]
     elif TARGETS == 'health':
         loop_targets = ['modified_HACK_top17_score', 'GMWI2_score']
     print('preparing queue')
@@ -199,9 +202,11 @@ def predict_robustness():
         params_results = {}
         models_list = pickle.load(open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/robustness_models/models_' + MODEL + '_' + TARGETS + '_' + str(n_samples) + '_samples' + PROBLEM + '.pkl', "rb"))
         if TARGETS == 'div':
-            loop_targets = ['Richness', 'Shannon_diversity']
+            loop_targets = div_features
         elif TARGETS == 'abundance':
             loop_targets = target_input
+        elif TARGETS == 'enterosignatures':
+            loop_targets = [f'Enterosignature_{i}' for i in range(1, 6)]
         print('preparing queue')
         for i in range(len(loop_targets)):
             params_results[i] = predict(test_baseline, features, loop_targets[i], i, models_list)

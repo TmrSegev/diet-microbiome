@@ -20,13 +20,13 @@ from sklearn.preprocessing import StandardScaler
 
 
 MODEL = 'LGBM' # 'LGBM' or 'ridge'
-TARGETS = 'abundance' # 'div' or 'abundance' or 'pathways'
+TARGETS = 'div' # 'div' or 'abundance' or 'pathways' or 'enterosignatures'
 SPLIT = 'kfold' # 'kfold' or 'all_baseline'
 PROBLEM = 'regression' # 'regression' or 'classification'
 SPECIES = 'segal_species' # 'segal_species' or 'mpa_species'
 PERMUTATIONS = 1000 # Number of permutations
 nutrients_only = False  # Use nutrients-only features
-pnp3_10k_features = True  # Use pnp3 10k features
+pnp3_10k_features = False  # Use pnp3 10k features
 
 suffix = '_all_baseline' if SPLIT == 'all_baseline' else ''
 suffix_nutrients = '_nutrients_only' if nutrients_only else ''
@@ -34,6 +34,7 @@ suffix_pnp3 = '_10k_pnp3' if pnp3_10k_features else ''
 suffix_features = suffix_nutrients + suffix_pnp3
 pathways = '' if TARGETS != 'pathways' else '_pathways'
 
+div_features = ['Richness', 'Shannon_diversity', 'Faith_index']
 
 def choose_target_bins(df_log, targets):
     df_mb = df_log[targets]
@@ -194,7 +195,7 @@ def train_classification(df, features, target, i):
 
 
 def reverse_prediction(diet_mb, features, target_input):
-    mb_features = target_input + ['Richness', 'Shannon_diversity'] + ['age', 'gender']
+    mb_features = target_input + div_features + ['age', 'gender']
     diet_targets = [feat for feat in features if feat not in ['age', 'gender']]
     # Exclude "gender" from standardization
     features_to_standardize = [feature for feature in mb_features if feature != "gender"]
@@ -285,7 +286,9 @@ def stub_job(q):
             pickle.dump(microbe_bin_mapping, f)
             print("SAVED MAPPING")
     elif TARGETS == 'div':
-        loop_targets = ['Richness', 'Shannon_diversity']
+        loop_targets = div_features
+    elif TARGETS == 'enterosignatures':
+        loop_targets = [f'Enterosignature_{i}' for i in range(1, 6)]
     print('preparing queue')
 
     output = pd.Series()

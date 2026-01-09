@@ -25,8 +25,8 @@ plt.style.use(style_path + single_style)
 
 outdir = '/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/'
 MODEL = 'LGBM' # 'LGBM' or 'ridge'
-TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
-GROUP = 'Top' # 'Health', 'div', 'Top', 'probiotics', "pathogenic", "TMAO", "SCFA", "butyrate", "acetate", "propionate", 'etc', 'Top_pathways', "Health_shared_species", "Triglycerides"
+TARGETS = 'pathways' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
+GROUP = 'Top_pathways' # 'Health', 'div', 'Top', 'probiotics', "pathogenic", "TMAO", "SCFA", "butyrate", "acetate", "propionate", 'etc', 'Top_pathways', "Health_shared_species", "Triglycerides"
 PROBLEM = 'regression' # 'regression' or 'classification' or 'given_presence' or 'reverse'
 SPECIES = "segal_species" # "mpa_species" or "segal_species"
 PLOT_TYPE = 'dot' # 'dot' or 'bar'

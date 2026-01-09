@@ -39,12 +39,38 @@ The run of each file may take a few minutes up to a few hours, depending on the 
 - `diet_intervention_queue.py`
 - `diet_intervention_analysis.ipynb`
 
+#### External validation pipeline
+Australian cohort:
+- `diet_processing_nutrients_only.ipynb`
+- `aus_data_creation.ipynb`
+- `train_models.py`  
+  - Parameters:
+    - Same, but with nutrients_only=True
+- `permutations_queue.py`  
+  - Parameters:
+    - Same, but with nutrients_only=True
+- `predict_PNP3.py`
+  - Parameters: cohort='AUS'
+- `analysis.ipynb`
 
-### Software dependencies:
+PNP3 cohort:
+- `pnp3_data_creation.ipynb`
+- `train_models.py`  
+  - Parameters:
+    - Same, but with pnp3_10k_features=True
+- `permutations_queue.py`  
+  - Parameters:
+    - Same, but with pnp3_10k_features=True
+- `predict_PNP3.py`
+  - Parameters: cohort='PNP3'
+- `analysis.ipynb`
+
+
+### Software dependencies
 Python 3.7.4, numpy 1.21.0, pandas 1.3.5, scipy 1.7.0, statsmodels 0.13.2, scikit-learn 0.23.2, lightgbm 4.5.0, shap 0.39.0, matplotlib 3.4.3, seaborn 0.11.1, MetaPhlAn 4.0.6, humann 3.6.1
 
 ### Demo
-Run `demo.ipynb` to train models on a mock data and generate Fig. 3a. Expected time: 30 minutes.
+Run `demo.ipynb` to train models on mock data and generate Fig. 3a. Expected time: 30 minutes.
 
 
 
