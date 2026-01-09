@@ -15,11 +15,11 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
 MODEL = 'LGBM' # 'LGBM' or 'ridge' or 'logistic'
-TARGETS = 'abundance' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
-STAGE = 'baseline' # 'baseline' or 'intervention'
+TARGETS = 'div' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
+STAGE = 'intervention' # 'baseline' or 'intervention'
 PROBLEM = 'regression' # 'classification' or 'regression' or 'given_presence' or 'reverse'
 SPECIES = 'segal_species' # 'mpa_species' or 'segal_species'
-DATASET = 'HPP' # 'pnp3' or 'AUS' or 'HPP'
+DATASET = 'pnp3' # 'pnp3' or 'AUS' or 'HPP'
 CLR_flag = False
 base_training = False
 no_var_features = False
@@ -111,6 +111,7 @@ def apply_scaling(df, feature_list, target_input):
     diet_scaler_path = f"{home_path}data/{SPECIES}/diet_scaler{pathways}{CLR_suf}{suffix_features}.pkl"
     mb_scaler_path = f"{home_path}data/{SPECIES}/mb_scaler{pathways}{CLR_suf}{suffix_features}.pkl"
     age_scaler_path = f"{home_path}data/{SPECIES}/age_scaler{pathways}{CLR_suf}{suffix_features}.pkl"
+    bmi_scaler_path = f"{home_path}data/{SPECIES}/bmi_scaler{pathways}{CLR_suf}{suffix_features}.pkl"
     div_scaler_path = f"{home_path}data/{SPECIES}/div_scaler{pathways}{CLR_suf}{suffix_features}.pkl"
     
     with open(diet_scaler_path, 'rb') as file:
@@ -123,10 +124,16 @@ def apply_scaling(df, feature_list, target_input):
     with open(age_scaler_path, 'rb') as file:
         age_scaler = pickle.load(file)
     
+    # Load BMI scaler if it exists
+    bmi_scaler = None
+    if os.path.exists(bmi_scaler_path):
+        with open(bmi_scaler_path, 'rb') as file:
+            bmi_scaler = pickle.load(file)
+    
     # Sanitize feature names to match column names
     features_sanitized = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in feature_list]
     # Filter to only features that exist in dataframe and exclude age and sex
-    features_to_scale = [f for f in features_sanitized if f in df.columns and f not in ['age', 'sex']]
+    features_to_scale = [f for f in features_sanitized if f in df.columns and f not in ['age', 'sex', 'bmi']]
     
     # Apply diet scaler to features (excluding age and sex)
     if features_to_scale and hasattr(diet_scaler, 'mean_'):
@@ -138,9 +145,13 @@ def apply_scaling(df, feature_list, target_input):
     if 'age' in df.columns:
         df.loc[:, ['age']] = age_scaler.transform(df[['age']])
     
+    # Apply BMI scaler
+    if 'bmi' in df.columns and bmi_scaler is not None and hasattr(bmi_scaler, 'mean_'):
+        df.loc[:, ['bmi']] = bmi_scaler.transform(df[['bmi']])
+    
     # Apply mb_scaler to targets (only for abundance/pathways, not div)
     # For div targets, use div_scaler instead
-    div_features = ['Richness', 'Shannon_diversity']
+    div_features = ['Richness', 'Shannon_diversity', 'Faith_index']
     if TARGETS == 'div':
         # Use div_scaler for diversity targets
         div_features_present = [feat for feat in div_features if feat in df.columns]
@@ -219,7 +230,7 @@ def predict_pnp3():
             raise ValueError(f"STAGE must be 'baseline' or 'intervention', got {STAGE}")
     elif DATASET == 'AUS':
         if STAGE == 'baseline':
-            df = pd.read_pickle(home_path + 'data/segal_species/diet_mb_AUS_baseline.pkl')
+            df = pd.read_pickle(home_path + 'data/segal_species/diet_mb_aus_baseline.pkl')
         else:
             raise ValueError(f"For AUS dataset, only 'baseline' STAGE is supported, got {STAGE}")
     elif DATASET == 'HPP':
@@ -231,7 +242,7 @@ def predict_pnp3():
             print(f"Loaded pre-scaled HPP dataset (diet_mb{pathways}_baseline{CLR_suf}{suffix_features}_test.pkl)")
             
             # Sample the same number of subjects as AUS dataset
-            aus_df = pd.read_pickle(home_path + 'data/segal_species/diet_mb_AUS_baseline.pkl')
+            aus_df = pd.read_pickle(home_path + 'data/segal_species/diet_mb_aus_baseline.pkl')
             n_aus_subjects = len(aus_df)
             print(f"AUS dataset has {n_aus_subjects} subjects")
             print(f"HPP dataset has {len(df_full)} subjects before sampling")
@@ -283,26 +294,31 @@ def predict_pnp3():
     with open(home_path + 'data/my_lists_pnp3.pkl', 'rb') as file:
         _, targets_10k = pickle.load(file)
     
+    # Check for specific features before sanitizing
+    faith_exists = 'Faith_index' in df.columns
+    bmi_exists = 'bmi' in df.columns
+    print(f"Before sanitizing: 'Faith_index' exists: {faith_exists}, 'bmi' exists: {bmi_exists}")
+    
     # Sanitize column names in dataframe
     df.columns = df.columns.str.replace(r'[^a-zA-Z0-9_]', '_', regex=True)
     
     # Sanitize feature and target names
     features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in feature_list]
     # Add 'age' and 'sex' if not already present
-    for feat in ['age', 'sex']:
+    for feat in ['age', 'sex', 'bmi']:
         if feat not in features:
             features.append(feat)
     
     # If base_training is True, only use base features (age, sex)
     if base_training:
-        base_features = ['age', 'sex']
+        base_features = ['age', 'sex', 'bmi']
         features = [f for f in base_features if f in df.columns]
     
     # For TARGETS=abundance, use targets_10k; otherwise use appropriate targets
     if TARGETS == 'abundance':
         target_input = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in targets_10k]
     elif TARGETS == 'div':
-        target_input = ['Richness', 'Shannon_diversity']
+        target_input = ['Richness', 'Shannon_diversity', 'Faith_index']
     elif TARGETS == 'health':
         target_input = ['modified_HACK_top17_score', 'GMWI2_score']
     elif TARGETS == 'pathways':
@@ -328,7 +344,7 @@ def predict_pnp3():
     
     # Determine loop targets
     if TARGETS == 'div':
-        loop_targets = ['Richness', 'Shannon_diversity']
+        loop_targets = ['Richness', 'Shannon_diversity', 'Faith_index']
     elif TARGETS == 'abundance' or TARGETS == 'pathways' or PROBLEM == 'reverse':
         loop_targets = target_input
     elif TARGETS == 'health':
@@ -338,6 +354,9 @@ def predict_pnp3():
     loop_targets = [t for t in loop_targets if t in df.columns]
     
     print(f"Loop targets: {len(loop_targets)}")
+    
+    # Use 'PREDICT' instead of 'AUS' in output filename when DATASET is 'AUS'
+    dataset_name = 'PREDICT' if DATASET == 'AUS' else DATASET
     
     # For HPP dataset, run 5 times and average results (for both nutrients_only and _10k_pnp3)
     if DATASET == 'HPP' and df_full is not None and n_aus_subjects is not None and len(df_full) >= n_aus_subjects:
@@ -409,7 +428,7 @@ def predict_pnp3():
         
         # Save mean results
         output = mean_output
-        output_path = f"{home_path}data/{PROBLEM}/{SPECIES}/predictions_{DATASET}_{MODEL}_{TARGETS}_{STAGE}{suffix_features}_mean.pkl"
+        output_path = f"{home_path}data/{PROBLEM}/{SPECIES}/predictions_{dataset_name}_{MODEL}_{TARGETS}_{STAGE}{suffix_features}_mean.pkl"
     else:
         # Single run for non-HPP or non-nutrients_only cases
         # Make predictions
@@ -427,7 +446,7 @@ def predict_pnp3():
         # Save results
         output = pd.DataFrame(params_results).transpose()
         output = output.apply(lambda x: x.explode(), axis=1)
-        output_path = f"{home_path}data/{PROBLEM}/{SPECIES}/predictions_{DATASET}_{MODEL}_{TARGETS}_{STAGE}{suffix_features}.pkl"
+        output_path = f"{home_path}data/{PROBLEM}/{SPECIES}/predictions_{dataset_name}_{MODEL}_{TARGETS}_{STAGE}{suffix_features}.pkl"
     
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     output.to_pickle(output_path)

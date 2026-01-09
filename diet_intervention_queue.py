@@ -7,26 +7,21 @@ import os
 import pandas as pd
 import numpy as np
 import pickle
-from scipy.optimize import linprog
-import seaborn as sns
-import matplotlib.pyplot as plt
 from collections import Counter
 from collections import defaultdict
 import re
-import matplotlib.patches as mpatches  # Needed for legend
-from sklearn.preprocessing import StandardScaler
 import warnings
+from sklearn.preprocessing import StandardScaler
 
 foods_only = True  # Set to True if you want to use only food features, False for all features
 suffix_foods = '_foods_only' if foods_only else ''
-PHENOTYPE = 'bt__wbc'  # The phenotype to predict, e.g., 'bt__triglycerides'
+PHENOTYPE = 'CMI_PC1'  # The phenotype to predict, e.g., 'bt__triglycerides', CMI_PC1
 
 def main(q):
     home_path = '/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/'
     SPECIES = 'segal_species' # 'mpa_species' or 'segal_species'
     PROBLEM = 'regression'
 
-    figures_path = '/net/mraid20/ifs/wisdom/segal_lab/genie/LabData/Analyses/tomerse/diet_mb/figures/diet_intervention'
     phenotypes_mb = pd.read_pickle('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/phenotypes_mb.pkl')
 
     with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/target_phenotypes.pkl', 'rb') as f:
@@ -53,7 +48,6 @@ def main(q):
 
     # all_features_formatted = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in all_features]
     all_features_formatted = all_features
-
 
     with open(home_path + f'data/{SPECIES}/scaler.pkl', 'rb') as scaler_file:
             scaler = pickle.load(scaler_file)
@@ -175,21 +169,21 @@ def main(q):
         return data_copy
 
     # Load SHAP values for phenotypes and microbiome
-    directional_phenotypes_shap = pd.read_pickle('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/diet_intervention/directional_phenotypes_shap.pkl')
+    # directional_phenotypes_shap = pd.read_pickle('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/diet_intervention/directional_phenotypes_shap.pkl')
 
-    # Remove age and gender
-    directional_phenotypes_shap = directional_phenotypes_shap[~directional_phenotypes_shap.index.isin(['age', 'sex'])]
-    directional_phenotypes_shap = directional_phenotypes_shap.iloc[significant_targets_indices, :]
-    directional_microbiome_shap = pd.read_pickle('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/diet_intervention/directional_microbiome_shap.pkl')
+    # Remove age and sex
+    # directional_phenotypes_shap = directional_phenotypes_shap[~directional_phenotypes_shap.index.isin(['age', 'sex'])]
+    # directional_phenotypes_shap = directional_phenotypes_shap.iloc[significant_targets_indices, :]
+    # directional_microbiome_shap = pd.read_pickle('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/diet_intervention/directional_microbiome_shap.pkl')
 
-    # Remove age and gender
-    directional_microbiome_shap = directional_microbiome_shap[~directional_microbiome_shap.index.isin(['age', 'sex'])]
+    # # Remove age and sex
+    # directional_microbiome_shap = directional_microbiome_shap[~directional_microbiome_shap.index.isin(['age', 'sex'])]
 
 
     def get_subject(diet_mb, i):
         subject = diet_mb.iloc[i]
 
-        subject_gender = subject['sex']
+        subject_sex = subject['sex']
         subject_age = subject['age']
 
         subject_diet = subject[all_features + ['Energy']]
@@ -203,7 +197,7 @@ def main(q):
         # subject_mb.index = targets
 
 
-        return subject_diet, subject_mb, subject_calories, subject_gender, subject_age
+        return subject_diet, subject_mb, subject_calories, subject_sex, subject_age
 
 
     # indices_to_find = [
@@ -217,36 +211,36 @@ def main(q):
     # for index_to_find in indices_to_find:
     #     location = directional_triglycerides_shap.index.get_loc("Bifidobacterium longum")
     #     print(f"Index '{index_to_find}' is at location: {location}")
-    directional_triglycerides_shap = directional_phenotypes_shap.loc[:, PHENOTYPE]
+    # directional_triglycerides_shap = directional_phenotypes_shap.loc[:, PHENOTYPE]
     # directional_triglycerides_shap[29] = directional_triglycerides_shap[29] * 1000000 # For testing!
-    directional_triglycerides_shap.abs().sort_values(ascending=False)
+    # directional_triglycerides_shap.abs().sort_values(ascending=False)
 
-    triglyceride_species = [
-        "Otoolea fessa",
-        "Lachnospira pectinoschiza_A",
-        "Bifidobacterium longum",
-        "Alistipescatomonas sp900066785",
-        "Faecalibacterium longum_1",
-        "Ligilactobacillus ruminis",
-        "Acetatifactor intestinalis_1",
-        "Choladosuia sp902363665",
-        "Agathobacter rectalis",
-        "Enterocloster sp000431375",
-        "Roseburia intestinalis",
-        "Bacteroides cellulosilyticus",
-        "UBA11524 sp000437595",
-        "Streptococcus parasanguinis",
-        "Lachnospira hominis",
-        "Klebsiella pneumoniae",
-        "Merdivicinus sp934539585",
-        "Faecalibacterium sp900539885"
-    ]
-    directional_triglycerides_shap[[639, 251, 466, 625, 615]]
-    directional_microbiome_shap = directional_microbiome_shap.loc[food_shortnames, :]
+    # triglyceride_species = [
+    #     "Otoolea fessa",
+    #     "Lachnospira pectinoschiza_A",
+    #     "Bifidobacterium longum",
+    #     "Alistipescatomonas sp900066785",
+    #     "Faecalibacterium longum_1",
+    #     "Ligilactobacillus ruminis",
+    #     "Acetatifactor intestinalis_1",
+    #     "Choladosuia sp902363665",
+    #     "Agathobacter rectalis",
+    #     "Enterocloster sp000431375",
+    #     "Roseburia intestinalis",
+    #     "Bacteroides cellulosilyticus",
+    #     "UBA11524 sp000437595",
+    #     "Streptococcus parasanguinis",
+    #     "Lachnospira hominis",
+    #     "Klebsiella pneumoniae",
+    #     "Merdivicinus sp934539585",
+    #     "Faecalibacterium sp900539885"
+    # ]
+    # directional_triglycerides_shap[[639, 251, 466, 625, 615]]
+    # directional_microbiome_shap = directional_microbiome_shap.loc[food_shortnames, :]
 
-    prevalence_count = [(diet_mb[target] > -4).sum() for target in significant_targets]
-    prevalence_count = pd.Series(prevalence_count, index=directional_phenotypes_shap.index)
-    prevalence_count.sort_values()
+    # prevalence_count = [(diet_mb[target] > -4).sum() for target in significant_targets]
+    # prevalence_count = pd.Series(prevalence_count, index=directional_phenotypes_shap.index)
+    # prevalence_count.sort_values()
     diet_foods_df = pd.read_csv('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/diet_adherence_foods.csv', index_col=0)
     diet_foods_df = diet_foods_df.loc[:,diet_foods_df.columns.isin(food_shortnames)]
     nova_foods_df = diet_foods_df.loc['NOVA', :]
@@ -274,8 +268,8 @@ def main(q):
 
     # diet_species_model = pickle.load(open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/regression/segal_species/models_' + 'LGBM' + '_' + 'abundance_longitudinal.pkl', 'rb'))
 
-    phenotypes_models_dict = pickle.load(open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/{SPECIES}/models_mb_phenotypes.pkl', 'rb'))
-    triglycerids_model = phenotypes_models_dict[PHENOTYPE]
+    # phenotypes_models_dict = pickle.load(open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/{SPECIES}/models_mb_phenotypes.pkl', 'rb'))
+    # phenotypes_model = phenotypes_models_dict[PHENOTYPE]
 
 
     warnings.filterwarnings("ignore", message="Trying to unpickle estimator StandardScaler")
@@ -318,7 +312,7 @@ def main(q):
     def check_constraints(candidate: pd.Series,
                         original: pd.Series,
                         kcal: float,
-                        gender: str,
+                        sex: str,
                         max_kcal_pct: float,
                         alcohol_idx: np.ndarray) -> bool:
         # total kcal change
@@ -327,7 +321,7 @@ def main(q):
             return False
 
         # alcohol %
-        if candidate[alcohol_idx].sum() > (0.05 if gender == "female" else 0.07):
+        if candidate[alcohol_idx].sum() > (0.05 if sex == "female" else 0.07):
             return False
 
         return True
@@ -339,7 +333,7 @@ def main(q):
                                             mb_scaler: StandardScaler,
                                             age_scaler: StandardScaler,
                                             subject_age: float,
-                                            subject_gender,
+                                            subject_sex,
                                             all_features: list,
                                             diet_features: list,
                                             targets: list) -> pd.DataFrame:
@@ -351,7 +345,7 @@ def main(q):
         # age
         vec["age"] = age_scaler.transform([[subject_age]])[0, 0]
         # sex (pass through)
-        vec["sex"] = subject_gender
+        vec["sex"] = subject_sex
 
         # build input DF ONCE
         df_in = pd.DataFrame([vec.values], columns=all_features)
@@ -366,24 +360,24 @@ def main(q):
         return pd.concat([meta, z_df], axis=1)
 
 
-    def predict_triglycerides(subject_mb: pd.DataFrame,
+    def predict_phenotype(subject_mb: pd.DataFrame,
                             targets: list,
                             mb_scaler: StandardScaler,
                             age_scaler: StandardScaler,
                             subject_age: float,
-                            subject_gender,
-                            tg_model) -> float:
+                            subject_sex,
+                            phenotype_model) -> float:
         # scale microbiome
         mb_scaled = mb_scaler.transform(subject_mb[targets])
         df = pd.DataFrame(mb_scaled, columns=targets, index=subject_mb.index)
 
         # add age, sex
         df["age"] = age_scaler.transform([[subject_age]])[0, 0]
-        df["sex"] = subject_gender
+        df["sex"] = subject_sex
 
         # reorder
         ordered = df[["age", "sex"] + targets]
-        return tg_model.predict(ordered)[0]
+        return phenotype_model.predict(ordered)[0]
 
 
     def recommend_diet_change_greedy(
@@ -395,12 +389,12 @@ def main(q):
         mb_scaler: StandardScaler,
         age_scaler: StandardScaler,
         model_diet_to_mb_path: str,
-        model_tg_path: str,
+        model_phenotype_path: str,
         nova_df: pd.DataFrame,
         food_upper_bounds: pd.Series,
         food_lower_bounds: pd.Series,
         subject_calories: float,
-        subject_gender: str,
+        subject_sex: str,
         subject_age: float,
         targets: list,
         max_total_kcal_pct_change: float,
@@ -411,9 +405,15 @@ def main(q):
         with open(model_diet_to_mb_path, 'rb') as f:
             model_diet_to_mb = pickle.load(f)
 
-        with open(model_tg_path, 'rb') as f:
+        with open(model_phenotype_path, 'rb') as f:
             phenotypes_models_dict = pickle.load(f)
-        model_tg = phenotypes_models_dict[PHENOTYPE]
+
+        print("PHENOTYPE requested:", PHENOTYPE)
+        print("Available phenotype models:", sorted(list(phenotypes_models_dict.keys()))[:50])
+        print("Num phenotype models:", len(phenotypes_models_dict))
+
+
+        model_phenotype = phenotypes_models_dict[PHENOTYPE]
         # -----------------------------------
 
         # original diet %
@@ -427,12 +427,12 @@ def main(q):
         print(non_exist)
         alcohol_idx = np.isin(orig_pct.index, list(alcoholic_features))
 
-        # baseline triglycerides
+        # baseline phenotype prediction
         baseline_mb = predict_microbiome_from_diet_optimized(
                 subject_diet, model_diet_to_mb,
                 diet_scaler, mb_scaler,
                 age_scaler, subject_age,
-                subject_gender,
+                subject_sex,
                 all_features, DIET_ONLY_FEATURES, targets
             )
         
@@ -440,23 +440,34 @@ def main(q):
             baseline_mb, mb_scaler, non_exist, targets
         )
 
-        baseline_tg = predict_triglycerides(
+        baseline_phenotype = predict_phenotype(
             baseline_norm_mb, targets,
             mb_scaler, age_scaler,
-            subject_age, subject_gender,
-            model_tg
+            subject_age, subject_sex,
+            model_phenotype
         )
-        print("Baseline triglycerides:", baseline_tg)
-        current_tg = baseline_tg
+        print("Baseline phenotype:", baseline_phenotype)
+        current_phenotype = baseline_phenotype
 
         # greedy loop
+
+        ############################################################
+        # direction_phases = [(1, -1)]
+        ############################################################
+
         direction_phases = [(1, -1), (0.5, -0.5)]
         for phase, directions in enumerate(direction_phases, start=1):
             print(f"--- Phase {phase}: using directions {directions} ---")
             for it in range(max_iter):
                 print(f"-------------- Iteration: {it + 1} --------------")
-                best_pred = current_tg
+                best_pred = current_phenotype
                 best_step = None
+
+                ############################################################
+                # K_FOODS = 30
+                # candidate_foods = orig_pct[orig_pct > 0].sort_values(ascending=False).head(K_FOODS).index
+                # for food in candidate_foods:
+                ############################################################
 
                 for food in orig_pct.index[orig_pct > 0]:
 
@@ -506,7 +517,7 @@ def main(q):
                         if not check_constraints(cand_pct,
                                                 orig_pct,
                                                 subject_calories,
-                                                subject_gender,
+                                                subject_sex,
                                                 max_total_kcal_pct_change,
                                                 alcohol_idx):
                             # print("Nobody cares about constraints!")
@@ -517,25 +528,25 @@ def main(q):
                             cand_all, model_diet_to_mb,
                             diet_scaler, mb_scaler,
                             age_scaler, subject_age,
-                            subject_gender,
+                            subject_sex,
                             all_features, DIET_ONLY_FEATURES, targets
                         )
                         norm_mb = normalize_predicted_microbiome_optimized(
                             pred_mb, mb_scaler, non_exist, targets
                         )
 
-                        # predict TG
-                        pred_tg = predict_triglycerides(
+                        # predict phenotype
+                        pred_phenotype = predict_phenotype(
                             norm_mb, targets,
                             mb_scaler, age_scaler,
-                            subject_age, subject_gender,
-                            model_tg
+                            subject_age, subject_sex,
+                            model_phenotype
                         )
-                        print("Predicted triglycerides for this change: ", pred_tg)
+                        print("Predicted phenotype for this change: ", pred_phenotype)
 
-                        if pred_tg < best_pred:
+                        if pred_phenotype < best_pred:
                             print("NEW BEST PRED!")
-                            best_pred = pred_tg
+                            best_pred = pred_phenotype
                             best_step = (food, direction, step_sz)
 
                 # no improvement?
@@ -550,7 +561,7 @@ def main(q):
                 food, direction, step_sz = best_step
                 total_steps[food] += step_sz
                 used_steps.add(f"{food}_{direction}")
-                current_tg = best_pred
+                current_phenotype = best_pred
 
         # how many iterations we actually did
         iterations = it + 1
@@ -566,19 +577,19 @@ def main(q):
             final_diet, model_diet_to_mb,
             diet_scaler, mb_scaler,
             age_scaler, subject_age,
-            subject_gender,
+            subject_sex,
             all_features, DIET_ONLY_FEATURES, targets
         )
         final_norm_mb = normalize_predicted_microbiome_optimized(
             final_mb, mb_scaler, non_exist, targets
         )
 
-        # final TG
-        final_tg = predict_triglycerides(
+        # final phenotype
+        final_phenotype = predict_phenotype(
             final_norm_mb, targets,
             mb_scaler, age_scaler,
-            subject_age, subject_gender,
-            model_tg
+            subject_age, subject_sex,
+            model_phenotype
         )
 
         species_cols = [c for c in baseline_norm_mb.columns if c not in ("age", "sex")]
@@ -591,8 +602,8 @@ def main(q):
             "subject_id": subject_id,
             "original_diet": orig_pct,
             "recommended_diet": final_diet,
-            "original_tg": baseline_tg,
-            "final_tg": final_tg,
+            "original_phenotype": baseline_phenotype,
+            "final_phenotype": final_phenotype,
             "predicted_baseline_microbiome": baseline_lin_mb,
             "final_microbiome": final_lin_mb,
             "delta_microbiome": final_lin_mb.subtract(baseline_lin_mb, axis=1),
@@ -601,7 +612,6 @@ def main(q):
             "iterations": iterations,
             "Energy": subject_calories
         }
-
 
     # CALL QUEUE HERE
     results = []
@@ -612,9 +622,11 @@ def main(q):
         diet_species_model_path = f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/regression/{SPECIES}/models_LGBM_abundance_longitudinal{suffix_foods}.pkl' # FOOD FEATURES ONLY!
     else:
         diet_species_model_path = f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/regression/segal_species/models_LGBM_abundance_longitudinal.pkl'
-    phenotypes_models_path = f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/models/segal_species/models_mb_phenotypes.pkl'
+
+    phenotypes_models_path = f'/net/mraid20/export/genie/LabData/Analyses/barakdan/models_mb_phenotypes_cmi_new.pkl'
 
     for i in range(len(diet_mb_test)):  # or range(N) for multiple subjects
+    # for i in range(20):
         print(f"Submitting job for subject {i}...")
 
         subject_diet, subject_mb, subject_kcal, subject_sex, subject_age = get_subject(diet_mb, i)
@@ -629,7 +641,7 @@ def main(q):
                 mb_scaler,
                 age_scaler,
                 # diet_species_model,
-                # triglycerids_model,
+                # phenotypes_model,
                 diet_species_model_path,
                 phenotypes_models_path,
                 nova_foods_df,
@@ -640,7 +652,8 @@ def main(q):
                 subject_age,
                 targets,
                 0.2,
-                10,) # Iterations
+                10)
+                # 3) # Iterations change back to 10!!!!!!!!!!!!!!!!!!!!
             )
     print("All jobs have been submitted to the queue.")
 

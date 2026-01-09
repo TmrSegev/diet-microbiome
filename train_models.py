@@ -19,22 +19,21 @@ from tqdm import tqdm
 
 ### PARAMETERS ###
 MODEL = 'LGBM' # 'LGBM' or 'ridge' or 'logistic'
-TARGETS = 'div' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways'
+TARGETS = 'div' # 'div' or 'abundance' or 'diet' or 'health' or 'pathways' or 'enterosignatures'
 SPLIT = 'longitudinal' # 'kfold' or 'longitudinal'
 PROBLEM = 'regression' # 'regression' or 'classification' or 'reverse' or 'given_presence'
 SPECIES = 'segal_species' # 'segal_species' or 'mpa_species'
 base_training = False
 CLR_flag = False
 robust_training = False
-ROBUST_REPEATS = 5  # number of subsamples per grid size
 no_var_features = False
 foods_only = False
-nutrients_only = False
+nutrients_only = True
 pnp3_10k_features = False
-# New default: use covariates (BMI + comorbidities). Set age_sex_only=True to drop them.
-age_sex_only = False
+age_sex_only = False # New default: use covariates (BMI + comorbidities). Set age_sex_only=True to drop them.
 # Helper flag
 use_covariates = not age_sex_only
+ROBUST_REPEATS = 5  # number of subsamples per grid size
 ##################
 
 suffix = '_longitudinal' if SPLIT == 'longitudinal' else '' 
@@ -50,6 +49,7 @@ suffix_covariates = '' if use_covariates else '_age_sex_only'
 suffix_features = suffix_foods + suffix_nutrients + suffix_pnp3 + suffix_covariates
 pathways = '' if TARGETS != 'pathways' else '_pathways'
 CLR_suf = '_CLR' if CLR_flag else ''
+div_features = ['Richness', 'Shannon_diversity', 'Faith_index']
 # SAVE_MODELS_IN_ROBUSTNESS = False if robust_training else True  # do not pickle models in robustness runs
 
 
@@ -121,7 +121,6 @@ def stub_subjob(df, features, target, i, models_dict):
 
 
 def train_baseline(df, features, target, i, models_dict):
-
     all_scores = []
     all_p_values = []
     all_feat_importances = []
@@ -362,7 +361,7 @@ def train_baseline_classification(df, features, target, i, models_dict):
 
 
 def scale_data(train, test, features, target_features, test_02_visit=None, test_04_visit=None, bmi_feature=None):
-    div_features = ['Richness', 'Shannon_diversity']
+    enterosig_features = [f'Enterosignature_{i}' for i in range(1, 6)]
     # Create copies to ensure the original dataframes passed to the function are not modified.
     train = train.copy()
     test = test.copy()
@@ -421,9 +420,17 @@ def scale_data(train, test, features, target_features, test_02_visit=None, test_
         train.loc[:, div_features_present] = div_scaler.fit_transform(train[div_features_present])
         test.loc[:, div_features_present] = div_scaler.transform(test[div_features_present])
 
+    # --- 4b. Initialize and apply the scaler for enterosignatures features ---
+    enterosig_scaler = StandardScaler()
+    enterosig_features_present = [feat for feat in enterosig_features if feat in train.columns]
+    
+    if enterosig_features_present:
+        train.loc[:, enterosig_features_present] = enterosig_scaler.fit_transform(train[enterosig_features_present])
+        test.loc[:, enterosig_features_present] = enterosig_scaler.transform(test[enterosig_features_present])
+
     # --- 5. Handle optional dataframes and return values ---
     if (test_02_visit is None) or (test_04_visit is None):
-        return train, test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler
+        return train, test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler, enterosig_scaler
     else:
         test_02_visit = test_02_visit.copy()
         test_04_visit = test_04_visit.copy()
@@ -471,25 +478,32 @@ def scale_data(train, test, features, target_features, test_02_visit=None, test_
             if div_in_04:
                 test_04_visit.loc[:, div_in_04] = div_scaler.transform(test_04_visit[div_in_04])
 
-        return train, test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler, test_02_visit, test_04_visit
+        # Transform the enterosignatures features in the optional dataframes using the fitted enterosig_scaler.
+        if enterosig_features_present:
+            enterosig_in_02 = [e for e in enterosig_features_present if e in test_02_visit.columns]
+            enterosig_in_04 = [e for e in enterosig_features_present if e in test_04_visit.columns]
+            if enterosig_in_02:
+                test_02_visit.loc[:, enterosig_in_02] = enterosig_scaler.transform(test_02_visit[enterosig_in_02])
+            if enterosig_in_04:
+                test_04_visit.loc[:, enterosig_in_04] = enterosig_scaler.transform(test_04_visit[enterosig_in_04])
+
+        return train, test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler, enterosig_scaler, test_02_visit, test_04_visit
 
 
 
 def prepare_data():
+    global div_features
     with open(f'/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/my_lists{pathways}.pkl', 'rb') as file:
         loaded_lists = pickle.load(file)
     base_features, features, target_input = loaded_lists
 
     # Load covariates (bmi + comorbidities; lifestyle intentionally excluded)
-    if use_covariates:
-        with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/covariates.pkl', 'rb') as file:
-            bmi_col, comorbidity_cols, _lifestyle_cols = pickle.load(file)
-        # Sanitize covariate names the same way columns are sanitized later
-        covariate_features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in ([bmi_col] + list(comorbidity_cols))]
-        bmi_feature = covariate_features[0] if covariate_features else None
-    else:
-        covariate_features = []
-        bmi_feature = None
+    # Always load covariate names so we can filter them out when age_sex_only=True
+    with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/covariates.pkl', 'rb') as file:
+        bmi_col, comorbidity_cols, _lifestyle_cols = pickle.load(file)
+    # Sanitize covariate names the same way columns are sanitized later
+    covariate_features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in ([bmi_col] + list(comorbidity_cols))]
+    bmi_feature = covariate_features[0] if (use_covariates and covariate_features) else None
 
     if no_var_features:
         features = [x for x in features if x not in [
@@ -533,8 +547,12 @@ def prepare_data():
         with open('/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/nutr_list_aus.pkl', 'rb') as file:
             nutr_list = pickle.load(file)
         features = nutr_list
-        # Add 'age' and 'sex' if not already present
-        for feat in ['age', 'sex']:
+        # Add 'age', 'sex', and 'bmi' (using actual column name) if not already present
+        # When nutrients_only is True, always include these covariates regardless of age_sex_only flag
+        covariates_to_add = ['age', 'sex']
+        if bmi_col:  # Use the actual BMI column name from covariates.pkl
+            covariates_to_add.append(bmi_col)
+        for feat in covariates_to_add:
             if feat not in features:
                 features.append(feat)
         print("Number of features:", len(features))
@@ -544,26 +562,17 @@ def prepare_data():
             pnp3_10k_shared_features, targets_10k = pickle.load(file)
         features = [x for x in features if x in pnp3_10k_shared_features]
         print(len(features))
-        # Add 'age' and 'sex' if not already present
-        for feat in ['age', 'sex']:
+        # Add 'age', 'sex', and 'bmi' (using actual column name) if not already present
+        # When pnp3_10k_features is True, always include these covariates regardless of age_sex_only flag
+        covariates_to_add = ['age', 'sex']
+        if bmi_col:  # Use the actual BMI column name from covariates.pkl
+            covariates_to_add.append(bmi_col)
+        for feat in covariates_to_add:
             if feat not in features:
                 features.append(feat)
         print(len(features))
         target_input = [x for x in target_input if x in targets_10k]
         print(f"Filtered target_input to {len(target_input)} targets")
-
-    # Always include covariates (bmi + comorbidities) for both base and full training
-    def _extend_unique(lst, extras):
-        for item in extras:
-            if item not in lst:
-                lst.append(item)
-    if use_covariates:
-        _extend_unique(features, covariate_features)
-        _extend_unique(base_features, covariate_features)
-    else:
-        # Ensure covariate columns are not in feature lists when covariates are disabled
-        features = [f for f in features if f not in covariate_features]
-        base_features = [f for f in base_features if f not in covariate_features]
 
     # Train test split (input pickles already include covariates when present)
     if nutrients_only:
@@ -617,10 +626,26 @@ def prepare_data():
     features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in features]
     base_features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in base_features]
     target_input = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in target_input]
+    div_features = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in div_features]
+    
+    # Covariates (bmi + comorbidities) are already in the loaded feature lists.
+    # Only remove them when age_sex_only=True (after sanitization so names match).
+    if not use_covariates:
+        # Sanitize covariate names to match sanitized feature names
+        covariate_features_sanitized = [re.sub(r'[^a-zA-Z0-9_]', '_', x) for x in covariate_features]
+        features = [f for f in features if f not in covariate_features_sanitized]
+        base_features = [f for f in base_features if f not in covariate_features_sanitized]
+        print(f"Removed {len(covariate_features_sanitized)} covariates from features. Remaining features: {len(features)}")
 
     # Drop any features not present in the loaded dataframe
     features = [f for f in features if f in diet_mb.columns]
     base_features = [f for f in base_features if f in diet_mb.columns]
+    # Check which div_features exist before filtering
+    div_features_before = div_features.copy()
+    div_features = [f for f in div_features if f in diet_mb.columns]
+    div_features_missing = [f for f in div_features_before if f not in div_features]
+    if div_features_missing:
+        print(f"Warning: The following div_features are missing from the dataframe and will be excluded: {div_features_missing}")
 
     original_features = features[:]
     features = base_features if base_training else features
@@ -647,7 +672,7 @@ def prepare_data():
     if PROBLEM != 'reverse':
         # When nutrients_only, skip processing visit dataframes (they have different columns)
         if nutrients_only:
-            diet_mb_train, diet_mb_test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler = scale_data(
+            diet_mb_train, diet_mb_test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler, enterosig_scaler = scale_data(
                 diet_mb_train, diet_mb_test, features, target_input, bmi_feature=bmi_feature
             )
         else:
@@ -659,6 +684,7 @@ def prepare_data():
                 age_scaler,
                 div_scaler,
                 bmi_scaler,
+                enterosig_scaler,
                 diet_mb_test_02_visit_copy,
                 diet_mb_test_04_visit_copy,
             ) = scale_data(
@@ -696,20 +722,25 @@ def prepare_data():
             with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/bmi_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
                 pickle.dump(bmi_scaler, file)
         # Save div_scaler if div features are present and scaler was fitted
-        div_features = ['Richness', 'Shannon_diversity']
         div_features_present = [feat for feat in div_features if feat in diet_mb_train.columns]
         if div_features_present and hasattr(div_scaler, 'mean_'):
             with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/div_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
                 pickle.dump(div_scaler, file)
+        # Save enterosig_scaler if enterosignatures features are present and scaler was fitted
+        enterosig_features = [f'Enterosignature_{i}' for i in range(1, 6)]
+        enterosig_features_present = [feat for feat in enterosig_features if feat in diet_mb_train.columns]
+        if enterosig_features_present and hasattr(enterosig_scaler, 'mean_'):
+            with open(f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/enterosig_scaler{pathways}{CLR_suf}{suffix_features}.pkl", 'wb') as file:
+                pickle.dump(enterosig_scaler, file)
         print("SAVED")
         return diet_mb_train, features, target_input
 
     if PROBLEM == 'reverse':
-        mb_features = (target_input + ['Richness', 'Shannon_diversity'] + base_features) if not base_training else base_features
+        mb_features = (target_input + div_features + base_features) if not base_training else base_features
         diet_targets = [feat for feat in original_features if feat not in ['age', 'gender']]
 
         # Standardize the data
-        diet_mb_train, diet_mb_test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler = scale_data(
+        diet_mb_train, diet_mb_test, diet_scaler, mb_scaler, age_scaler, div_scaler, bmi_scaler, enterosig_scaler = scale_data(
             diet_mb_train, diet_mb_test, mb_features, None, bmi_feature=bmi_feature
         )
         scaler = diet_scaler  # Keep for backward compatibility
@@ -731,7 +762,9 @@ def training_loop(diet_mb, features, target_input):
         # target_input = [target_input[i] for i in top_microbes.index if i < len(target_input)]
         loop_targets = target_input
     elif TARGETS == 'div':
-        loop_targets = ['Richness', 'Shannon_diversity']
+        loop_targets = div_features
+    elif TARGETS == 'enterosignatures':
+        loop_targets = [f'Enterosignature_{i}' for i in range(1, 6)]
     elif TARGETS == 'health':
         loop_targets = ['modified_HACK_top17_score', 'GMWI2_score']
         diet_mb = diet_mb.dropna(subset=loop_targets)
@@ -769,7 +802,7 @@ def _select_loop_targets_for_robustness(target_input):
     """
     Mirrors training_loop target selection to keep behavior consistent.
     For abundance/pathways/reverse: use top targets from prior run.
-    For div: ['Richness', 'Shannon_diversity'].
+    For div: div_features.
     For health: ['modified_HACK_top17_score', 'GMWI2_score'].
     """
     if TARGETS in ('abundance', 'pathways') or PROBLEM == 'reverse':
@@ -786,7 +819,9 @@ def _select_loop_targets_for_robustness(target_input):
         loop_targets = [target_input[i] for i in top_microbes.index if i < len(target_input)]
         return loop_targets
     elif TARGETS == 'div':
-        return ['Richness', 'Shannon_diversity']
+        return div_features
+    elif TARGETS == 'enterosignatures':
+        return [f'Enterosignature_{i}' for i in range(1, 6)]
     elif TARGETS == 'health':
         return ['modified_HACK_top17_score', 'GMWI2_score']
     else:
@@ -796,7 +831,23 @@ def _select_loop_targets_for_robustness(target_input):
 
 def robustness_training(diet_mb, features, target_input):
     loop_targets = _select_loop_targets_for_robustness(target_input)
-    N = len(diet_mb)
+    
+    # Pre-filter to rows with valid data for all targets and required features
+    # This ensures consistent effective sample sizes across repeats
+    required_cols = list(set(loop_targets + features))
+    # Only check columns that actually exist in the dataframe
+    required_cols = [col for col in required_cols if col in diet_mb.columns]
+    if not required_cols:
+        raise ValueError("None of the required columns (targets + features) exist in the dataframe!")
+    valid_mask = diet_mb[required_cols].notna().all(axis=1)
+    diet_mb_valid = diet_mb[valid_mask].copy()
+    
+    N = len(diet_mb_valid)
+    if N == 0:
+        raise ValueError("No rows with complete data for all targets and features!")
+    print(f"Valid rows for robustness training: {N} (out of {len(diet_mb)} total)")
+
+    
     sample_sizes = sorted({min(N, s) for s in [250, 500, 1000, 2000, 4000, 6000, N]})
 
     for it, n_samples in enumerate(sample_sizes, start=1):
@@ -805,7 +856,8 @@ def robustness_training(diet_mb, features, target_input):
 
             # Different seed per (size, repeat) - deterministic
             seed = it * 10_000 + rep
-            current_df = diet_mb.sample(n=n_samples, random_state=seed)
+            # current_df = diet_mb_valid.sample(n=n_samples, random_state=seed)
+            current_df = diet_mb_valid.sample(n=n_samples, random_state=rep)
 
             params_results = {}
             models_dict = {}
