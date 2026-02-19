@@ -588,10 +588,27 @@ def prepare_data():
     print("diet_mb_02_visit shape:", diet_mb_02_visit.shape)
     print("diet_mb_04_visit shape:", diet_mb_04_visit.shape)
 
-    visit_subjects_02 = list(diet_mb_02_visit.index)
-    visit_subjects_04 = list(diet_mb_04_visit.index)
-    diet_mb_test = diet_mb.loc[diet_mb.index.isin(visit_subjects_04) | diet_mb.index.isin(visit_subjects_02[:1000])]
-    diet_mb_train = diet_mb.loc[~diet_mb.index.isin(diet_mb_test.index)]
+    # Check if existing train/test files exist and use their indices for split
+    train_path = f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{CLR_suf}{suffix_features}_train.pkl"
+    test_path = f"/net/mraid20/export/genie/LabData/Analyses/tomerse/diet_mb/data/{SPECIES}/diet_mb{pathways}_baseline{CLR_suf}{suffix_features}_test.pkl"
+    
+    if os.path.exists(train_path) and os.path.exists(test_path):
+        # Use existing split indices
+        old_diet_mb_train = pd.read_pickle(train_path)
+        old_diet_mb_test = pd.read_pickle(test_path)
+        train_indices = old_diet_mb_train.index
+        test_indices = old_diet_mb_test.index
+        # Filter diet_mb to only include subjects that exist in the old split
+        diet_mb = diet_mb.loc[diet_mb.index.intersection(train_indices.union(test_indices))]
+        diet_mb_train = diet_mb.loc[diet_mb.index.intersection(train_indices)]
+        diet_mb_test = diet_mb.loc[diet_mb.index.intersection(test_indices)]
+    else:
+        # Use normal split logic based on visit subjects
+        visit_subjects_02 = list(diet_mb_02_visit.index)
+        visit_subjects_04 = list(diet_mb_04_visit.index)
+        diet_mb_test = diet_mb.loc[diet_mb.index.isin(visit_subjects_04) | diet_mb.index.isin(visit_subjects_02[:1000])]
+        diet_mb_train = diet_mb.loc[~diet_mb.index.isin(diet_mb_test.index)]
+    
     print("Length of all:", len(diet_mb))
     print("Length of train:", len(diet_mb_train))
     print("Length of test:", len(diet_mb_test))
