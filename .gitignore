@@ -1,0 +1,10 @@
+# Notebook artifacts
+.ipynb_checkpoints/
+
+# Job directories
+tabicl_jobs_*/
+logs/tabicl_*.err
+logs/tabicl_*.out
+
+# Accidental PII file
+10375
